@@ -1,22 +1,3 @@
-/**
- * Pulumi Kubernetes Guestbook + Monitoring Stack
- *
- * Deploys:
- *  1. Guestbook (Redis leader/replica + PHP frontend) in namespace "guestbook"
- *     — using the exact same images as the canonical pulumi/examples repo
- *  2. kube-prometheus-stack (Prometheus Operator + Prometheus + Grafana) via Helm
- *     in namespace "monitoring"
- *  3. ServiceMonitors that scrape Redis (leader + replica) and the frontend nginx exporter
- *  4. A pre-provisioned Grafana dashboard (Guestbook Overview) via ConfigMap sidecar
- *
- * Stack outputs:
- *  - frontendIp        – Guestbook external IP / ClusterIP
- *  - grafanaUrl        – Grafana UI URL
- *  - grafanaAdminUser  – always "admin"
- *  - grafanaAdminPass  – auto-generated or config-provided secret
- *  - prometheusNote    – kubectl port-forward command for Prometheus UI
- */
-
 // ── ALL IMPORTS MUST BE AT THE TOP ──────────────────────────────────────────
 import * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
@@ -28,13 +9,9 @@ import { guestbookDashboardJson } from "./dashboard";
 // ─────────────────────────────────────────────────────────────────────────────
 const cfg = new pulumi.Config();
 
-// When true, Services use ClusterIP (Minikube / kind).
-// When false (default), frontend + Grafana use LoadBalancer.
 const isMinikube = cfg.getBoolean("isMinikube") ?? false;
 const serviceType = isMinikube ? "ClusterIP" : "LoadBalancer";
 
-// Grafana admin password: use config secret if provided, else generate a
-// 20-character random password once per stack and store it encrypted.
 const grafanaPassword = cfg.getSecret("grafanaPassword") ??
   new random.RandomPassword("grafana-password", {
     length: 20,
@@ -55,11 +32,9 @@ const monitoringNs = new k8s.core.v1.Namespace("monitoring-ns", {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Guestbook application
-//    Images are identical to the canonical pulumi/examples kubernetes-ts-guestbook.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── 2a. Redis Leader ─────────────────────────────────────────────────────────
-// Label matches canonical example: { app: "redis-leader" }
 const redisLeaderLabels = { app: "redis-leader" };
 
 const redisLeaderDeployment = new k8s.apps.v1.Deployment("redis-leader", {
@@ -124,8 +99,6 @@ const redisLeaderService = new k8s.core.v1.Service("redis-leader-svc", {
 }, { dependsOn: redisLeaderDeployment });
 
 // ── 2b. Redis Replica ─────────────────────────────────────────────────────────
-// Label matches canonical example: { app: "redis-replica" }
-// Image: pulumi/guestbook-redis-replica (handles replication internally via env vars)
 const redisReplicaLabels = { app: "redis-replica" };
 
 const redisReplicaDeployment = new k8s.apps.v1.Deployment("redis-replica", {
@@ -148,7 +121,6 @@ const redisReplicaDeployment = new k8s.apps.v1.Deployment("redis-replica", {
         containers: [
           {
             name: "redis-replica",
-            // Canonical image – pre-configured to replicate from redis-leader via DNS.
             image: "pulumi/guestbook-redis-replica",
             resources: {
               requests: { cpu: "100m", memory: "100Mi" },
@@ -189,25 +161,13 @@ const redisReplicaService = new k8s.core.v1.Service("redis-replica-svc", {
 }, { dependsOn: redisReplicaDeployment });
 
 // ── 2c. Guestbook Frontend ───────────────────────────────────────────────────
-// Label matches canonical example: { app: "frontend" }
-// Image: pulumi/guestbook-php-redis (canonical image, NOT the GKE-specific one)
-//
-// Metrics strategy: the pulumi/guestbook-php-redis image is PHP-FPM behind Nginx.
-// We add an nginx-prometheus-exporter sidecar. However, the stock PHP image does
-// NOT enable nginx stub_status. We inject a ConfigMap that replaces the default
-// nginx virtual-host config to add the /nginx_status location, then mount it into
-// the frontend container so the exporter has a live endpoint to scrape.
 const frontendLabels = { app: "frontend" };
-
-// ConfigMap: nginx vhost snippet that enables stub_status at /nginx_status.
-// This is mounted into the frontend container so the exporter can scrape it.
 const nginxStubStatusConfig = new k8s.core.v1.ConfigMap("nginx-stub-status-cfg", {
   metadata: {
     name: "nginx-stub-status",
     namespace: guestbookNs.metadata.name,
   },
   data: {
-    // Drop-in file placed in /etc/nginx/conf.d/ inside the container.
     "stub_status.conf": `
 server {
     listen 81;
@@ -248,7 +208,6 @@ const frontendDeployment = new k8s.apps.v1.Deployment("frontend", {
         containers: [
           {
             name: "php-redis",
-            // Canonical guestbook frontend image.
             image: "pulumi/guestbook-php-redis",
             resources: {
               requests: { cpu: "100m", memory: "100Mi" },
@@ -256,7 +215,6 @@ const frontendDeployment = new k8s.apps.v1.Deployment("frontend", {
             },
             env: [{ name: "GET_HOSTS_FROM", value: "dns" }],
             ports: [{ name: "http", containerPort: 80 }],
-            // Mount the stub_status vhost config so Nginx exposes /nginx_status on :81.
             volumeMounts: [
               {
                 name: "nginx-stub-status-conf",
@@ -266,7 +224,6 @@ const frontendDeployment = new k8s.apps.v1.Deployment("frontend", {
               },
             ],
           },
-          // nginx-prometheus-exporter sidecar: scrapes :81/nginx_status → /metrics on :9113.
           {
             name: "nginx-exporter",
             image: "nginx/nginx-prometheus-exporter:1.1.0",
@@ -301,8 +258,6 @@ const frontendService = new k8s.core.v1.Service("frontend-svc", {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Grafana dashboard ConfigMap
-//    Grafana sidecar watches for label grafana_dashboard="1" across all namespaces
-//    and auto-provisions the dashboard — no manual import needed.
 // ─────────────────────────────────────────────────────────────────────────────
 const dashboardConfigMap = new k8s.core.v1.ConfigMap("guestbook-dashboard", {
   metadata: {
@@ -317,8 +272,6 @@ const dashboardConfigMap = new k8s.core.v1.ConfigMap("guestbook-dashboard", {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. kube-prometheus-stack Helm release
-//    Installs: Prometheus Operator, Prometheus, Grafana, Alertmanager,
-//              kube-state-metrics, node-exporter, and all default recording rules.
 // ─────────────────────────────────────────────────────────────────────────────
 const prometheusStack = new k8s.helm.v3.Release("kube-prometheus-stack", {
   chart: "kube-prometheus-stack",
@@ -327,13 +280,11 @@ const prometheusStack = new k8s.helm.v3.Release("kube-prometheus-stack", {
   repositoryOpts: {
     repo: "https://prometheus-community.github.io/helm-charts",
   },
-  // createNamespace is false because we created it explicitly above.
   createNamespace: false,
   values: {
     // ── Prometheus ──────────────────────────────────────────────────────────
     prometheus: {
       prometheusSpec: {
-        // Allow Prometheus to find ServiceMonitors in ANY namespace.
         serviceMonitorNamespaceSelector: {},
         serviceMonitorSelector: {},
         podMonitorNamespaceSelector: {},
@@ -343,8 +294,6 @@ const prometheusStack = new k8s.helm.v3.Release("kube-prometheus-stack", {
           requests: { cpu: "200m", memory: "400Mi" },
           limits:   { cpu: "500m", memory: "1Gi"   },
         },
-        // Additional scrape config: honour legacy prometheus.io/scrape pod annotations.
-        // This acts as a safety net for any pod that doesn't have a ServiceMonitor.
         additionalScrapeConfigs: [
           {
             job_name: "kubernetes-pod-annotations",
@@ -399,8 +348,6 @@ const prometheusStack = new k8s.helm.v3.Release("kube-prometheus-stack", {
         // NodePort only used when isMinikube=true.
         ...(isMinikube ? { nodePort: 32000, type: "NodePort" } : {}),
       },
-      // Sidecar: watches ALL namespaces for ConfigMaps labelled grafana_dashboard=1
-      // and auto-imports them as dashboards.
       sidecar: {
         dashboards: {
           enabled: true,
@@ -433,11 +380,7 @@ const prometheusStack = new k8s.helm.v3.Release("kube-prometheus-stack", {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. ServiceMonitors
-//    These CRDs are registered by the Helm chart above, so they dependOn it.
-//    Each ServiceMonitor lives in the monitoring namespace (where Prometheus looks)
-//    but targets pods in the guestbook namespace via namespaceSelector.
 // ─────────────────────────────────────────────────────────────────────────────
-
 // 5a. Frontend – scrapes nginx-prometheus-exporter on port "metrics" (:9113)
 const frontendServiceMonitor = new k8s.apiextensions.CustomResource(
   "frontend-service-monitor",
@@ -447,13 +390,10 @@ const frontendServiceMonitor = new k8s.apiextensions.CustomResource(
     metadata: {
       name: "guestbook-frontend",
       namespace: monitoringNs.metadata.name,
-      // The `release` label must match the Helm release name so the Prometheus
-      // Operator's default serviceMonitorSelector picks it up.
       labels: { release: "kube-prometheus-stack" },
     },
     spec: {
       namespaceSelector: { matchNames: ["guestbook"] },
-      // Matches the frontend Service label: { app: "frontend" }
       selector: { matchLabels: { app: "frontend" } },
       endpoints: [
         {
@@ -509,7 +449,6 @@ const redisReplicaServiceMonitor = new k8s.apiextensions.CustomResource(
     },
     spec: {
       namespaceSelector: { matchNames: ["guestbook"] },
-      // Matches the redis-replica Service label: { app: "redis-replica" }
       selector: { matchLabels: { app: "redis-replica" } },
       endpoints: [
         {
@@ -538,8 +477,6 @@ export const frontendIp: pulumi.Output<string> = isMinikube
     );
 
 // Grafana URL
-// The Helm chart names the Grafana service "<release-name>-grafana".
-// We look it up after the Helm release is ready using its Kubernetes resource ID.
 const grafanaSvcName = "kube-prometheus-stack-grafana";
 
 export const grafanaUrl: pulumi.Output<string> = prometheusStack.status.apply(() => {
