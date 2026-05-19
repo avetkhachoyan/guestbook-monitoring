@@ -1,0 +1,22 @@
+{
+  "name": "guestbook-monitoring",
+  "version": "1.0.0",
+  "description": "Pulumi: Kubernetes Guestbook + Prometheus/Grafana",
+  "main": "bin/index.js",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src --ext .ts",
+    "preview": "pulumi preview --diff",
+    "deploy": "pulumi up",
+    "destroy": "pulumi destroy"
+  },
+  "dependencies": {
+    "@pulumi/kubernetes": "^4.14.0",
+    "@pulumi/pulumi": "^3.115.0",
+    "@pulumi/random": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.11",
+    "typescript": "^5.4.5"
+  }
+}
