@@ -1,0 +1,4 @@
+config:
+  guestbook-monitoring:isMinikube: "false"
+  # grafanaPassword intentionally omitted — auto-generated on first pulumi up.
+  # To set: pulumi config set --secret grafanaPassword 'YourP@ss!'

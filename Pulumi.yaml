@@ -1,0 +1,12 @@
+name: guestbook-monitoring
+description: Kubernetes Guestbook + Prometheus/Grafana monitoring stack
+runtime: nodejs
+config:
+  isMinikube:
+    type: boolean
+    default: false
+    description: "true = ClusterIP + Grafana NodePort 32000 (Minikube/kind)"
+  grafanaPassword:
+    type: string
+    secret: true
+    description: "Grafana admin password. Auto-generated if not set."
