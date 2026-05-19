@@ -50,7 +50,6 @@ export const guestbookDashboardJson = JSON.stringify({
       },
       targets: [
         {
-          // nginx_http_requests_total is exposed by nginx/nginx-prometheus-exporter.
           expr: 'sum(rate(nginx_http_requests_total{namespace="$namespace"}[2m])) by (pod)',
           legendFormat: "{{pod}}",
           refId: "A",
@@ -108,8 +107,6 @@ export const guestbookDashboardJson = JSON.stringify({
       },
       targets: [
         {
-          // Labels on the scraped metrics will include app="redis-leader" / app="redis-replica"
-          // as the pod labels are lifted by the relabeling in ServiceMonitor.
           expr: 'redis_connected_clients{namespace="$namespace"}',
           legendFormat: "{{pod}}",
           refId: "A",
