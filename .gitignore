@@ -427,3 +427,16 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# TypeScript build output
+bin/
+
+# Pulumi state (when using local backend — never commit state)
+.pulumi/
+
+# Stack secret passphrases (never commit)
+*.passphrase
+
+# OS
+.DS_Store
+Thumbs.db
